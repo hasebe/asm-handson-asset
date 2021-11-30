@@ -1,0 +1,25 @@
+{
+  "environment": "web",
+  "format": "html",
+  "prefix": "https://storage.googleapis.com",
+  "mainga": "UA-49880327-14",
+  "updated": "2021-11-30T22:42:26+09:00",
+  "id": "anthos-service-mesh-basic-handson",
+  "duration": 5,
+  "title": "Anthos Service Mesh Basic Hands-on",
+  "summary": "Anthos Service Mesh basic level hands-on",
+  "source": "tutorial.md",
+  "theme": "",
+  "status": [
+    "published"
+  ],
+  "category": [
+    "codelab",
+    "markdown"
+  ],
+  "tags": [
+    "web"
+  ],
+  "feedback": "https://github.com/hasebe/asm-handson-asset",
+  "url": "anthos-service-mesh-basic-handson"
+}

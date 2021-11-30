@@ -1,0 +1,663 @@
+
+<!doctype html>
+
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1.0, user-scalable=yes">
+  <meta name="theme-color" content="#4F7DC9">
+  <meta charset="UTF-8">
+  <title>Anthos Service Mesh Basic Hands-on</title>
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Source+Code+Pro:400|Roboto:400,300,400italic,500,700|Roboto+Mono">
+  <link rel="stylesheet" href="//fonts.googleapis.com/icon?family=Material+Icons">
+  <link rel="stylesheet" href="https://storage.googleapis.com/codelab-elements/codelab-elements.css">
+  <style>
+    .success {
+      color: #1e8e3e;
+    }
+    .error {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <google-codelab-analytics gaid="UA-49880327-14"></google-codelab-analytics>
+  <google-codelab codelab-gaid=""
+                  id="anthos-service-mesh-basic-handson"
+                  title="Anthos Service Mesh Basic Hands-on"
+                  environment="web"
+                  feedback-link="https://github.com/hasebe/asm-handson-asset">
+    
+      <google-codelab-step label="概要" duration="5">
+        <p>このハンズオンでは Anthos Service Mesh の導入から、設定を通じてサービスメッシュの基礎的な機能を学習します。</p>
+<h2 is-upgraded>1.1 利用プロダクト</h2>
+<ul>
+<li><a href="https://cloud.google.com/kubernetes-engine/" target="_blank">Google Kubernetes Engine</a></li>
+<li><a href="https://cloud.google.com/anthos/service-mesh" target="_blank">Anthos Service Mesh</a></li>
+<li><a href="https://cloud.google.com/products/operations" target="_blank">Cloud Operations</a></li>
+</ul>
+<h2 is-upgraded>1.2 前提知識</h2>
+<ul>
+<li>Kubernetes の操作、基礎的な Kubernetes リソース (Service, Deployment, Pod)</li>
+</ul>
+<h2 is-upgraded>1.3 前提条件</h2>
+<p>本ハンズオンは、Billing が有効な Google Cloud プロジェクトで行うこと、また各種コマンドは Cloud Shell で実行することを前提としています。環境がない場合は、事前に Google Cloud プロジェクトをご用意ください。</p>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="事前準備" duration="0">
+        <h2 is-upgraded>2.1 Google Cloud Console へアクセス</h2>
+<p><a href="https://console.cloud.google.com/" target="_blank">こちら</a> から Google Cloud Console にブラウザでアクセスします。</p>
+<h2 is-upgraded>2.2 Cloud Shell の起動</h2>
+<p>各種コマンドを実行するための CLI 環境である Cloud Shell を開きます。下図の中のリンクをクリックし、Cloud Shell を開きます。</p>
+<p class="image-container"><img alt="Open Cloud Shell" src="img/4f94aafb6b22f1d0.png"></p>
+<h2 is-upgraded>2.3 Google Cloud プロジェクトの設定</h2>
+<p>ハンズオンを実行する対象の Google Cloud プロジェクトを設定します。コマンドの <code>XXXXXXXX</code> の部分を実際のプロジェクト ID に置き換えて実行します。プロジェクト ID は<a href="https://console.cloud.google.com/home/dashboard" target="_blank">ダッシュボード画面</a>のプロジェクト情報カードから確認ができます。</p>
+<pre><code language="language-shell" class="language-shell">export PROJECT_ID=XXXXXXXX
+gcloud config set project ${PROJECT_ID}
+</code></pre>
+<p>コマンド実行後に以下の様に Cloud Shell のプロンプトに、黄色の文字でプロジェクト ID が表示されていることを確認します。</p>
+<p class="image-container"><img alt="Prompt with Project ID" src="img/dca00eb61780238e.png"></p>
+<h2 is-upgraded>2.4 資材のダウンロード</h2>
+<p>ハンズオン用のフォルダを作成し、ハンズオンの資材をクローンします。</p>
+<pre><code language="language-shell" class="language-shell">mkdir -p asm-handson &amp;&amp; cd asm-handson
+git clone https://github.com/hasebe/asm-handson-asset
+</code></pre>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Google Kubernetes Engine (GKE) クラスタ作成" duration="0">
+        <h2 is-upgraded>3.1 GKE, Cloud Operations の有効化</h2>
+<p>Google Cloud では以下のような各種機能を API として提供しており、Google Cloud プロジェクトの作成直後は、ほぼすべての機能が無効化されております。そのため、使いたい機能は事前に有効化する必要があります。ここではアプリケーションをデプロイする対象の GKE、Cloud の運用機能である Cloud Operations を有効化します。</p>
+<pre><code language="language-shell" class="language-shell">gcloud services enable container.googleapis.com \
+  monitoring.googleapis.com \
+  cloudtrace.googleapis.com \
+  clouddebugger.googleapis.com \
+  cloudprofiler.googleapis.com
+</code></pre>
+<h2 is-upgraded>3.2 GKE クラスタ作成</h2>
+<p>アプリケーション、Anthos Service Mesh を稼働させる GKE クラスタを作成します。</p>
+<pre><code language="language-shell" class="language-shell">gcloud container clusters create asm-cluster \
+  --workload-pool ${PROJECT_ID}.svc.id.goog \
+  --release-channel regular \
+  --logging=SYSTEM,WORKLOAD \
+  --monitoring=SYSTEM \
+  --num-nodes 2 \
+  --machine-type e2-standard-4 \
+  --zone asia-northeast1-b
+</code></pre>
+<aside class="warning"><p> 注: 作成完了まで最大 10 分程度かかることがあります。 </p>
+</aside>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="サンプルアプリケーションのデプロイ" duration="0">
+        <h2 is-upgraded>4.1 アーキテクチャ</h2>
+<p>今回使用するアプリケーションは EC サイトを模したもので、マイクロサービス アーキテクチャにより作られています。以下のようなアーキテクチャ構成になっています。</p>
+<p class="image-container"><img alt="Application Architecture" src="img/a53472da8a991545.png"></p>
+<h2 is-upgraded>4.2 デプロイ</h2>
+<p>サンプルアプリケーションを GKE にデプロイします。</p>
+<pre><code language="language-shell" class="language-shell">kubectl apply -f asm-handson-asset/manifests/online-boutique.yaml
+</code></pre>
+<h2 is-upgraded>4.3 アプリケーションの動作確認</h2>
+<p>アプリケーションは Kubernetes の Service リソースである frontend-external (Type: LoadBalancer) を通じて外部からアクセスできます。実際に外部からアクセスをしてみましょう。</p>
+<pre><code language="language-shell" class="language-shell">kubectl get service frontend-external -n frontend
+</code></pre>
+<p><code>EXTERNAL-IP</code> 列にグローバル IP アドレスが表示されるまでコマンドを複数回実行します。表示されたらそのアドレスをブラウザに貼り付けてアクセスし、アプリケーションを確認します。</p>
+<h2 is-upgraded>4.4 バランシングの確認</h2>
+<p>30 回トップページにアクセスします。v1, v2, v3 それぞれ同数の Pod があるため、環境の表示回数 (Google Cloud, AWS, Azure) はほぼ同数となるはずです。</p>
+<pre><code language="language-shell" class="language-shell">EXTERNAL_IP=$(kubectl get svc frontend-external -n frontend -o jsonpath=&#39;{.status.loadBalancer.ingress[0].ip}&#39;)
+for i in $(seq 30); do curl -s http://${EXTERNAL_IP}/ | grep -e &#39;Google Cloud&#39; -e &#39;AWS&#39; -e &#39;Azure&#39;; done | sort | uniq -c
+</code></pre>
+<aside class="special"><p> Note: Kubernetes の Service ではデフォルトで、バックエンドの Pod にラウンドロビンでバランシングされます。つまり Pod を増減させることでアクセス割合を調整します。 </p>
+</aside>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Anthos Service Mesh (ASM) の導入" duration="0">
+        <h2 is-upgraded>5.1 インストール スクリプトのダウンロード、実行権限の付与</h2>
+<p>インストールするためのスクリプトをダウンロードし、実行できるようにします。</p>
+<pre><code language="language-shell" class="language-shell">curl https://storage.googleapis.com/csm-artifacts/asm/asmcli_1.11 &gt; asmcli
+chmod a+x asmcli
+</code></pre>
+<h2 is-upgraded>5.2 ASM のインストール</h2>
+<p>先程ダウンロードしたスクリプトを使い、ASM をインストールします。</p>
+<pre><code language="language-shell" class="language-shell">./asmcli install \
+  --project_id ${PROJECT_ID} \
+  --cluster_name asm-cluster \
+  --cluster_location asia-northeast1-b \
+  --fleet_id ${PROJECT_ID} \
+  --output_dir asm_output \
+  --enable_all \
+  --managed
+</code></pre>
+<aside class="special"><p> &#34;--managed&#34; のオプションを指定し、マネージド コントロールプレーンを有効にしたインストールを行います。通常クラスタ上で稼働する istiod などのコンポーネントは、Google 管理の環境で動き、利用者自身が管理する必要がなくなります。 </p>
+</aside>
+<aside class="warning"><p> 注: インストール完了まで最大 10 分程度かかることがあります。 </p>
+</aside>
+<h2 is-upgraded>5.3 Ingress Gateway の作成</h2>
+<p>ASM (Istio) ではメッシュに入るトラフィック、メッシュからでていくトラフィックを制御するためのコンポーネントとして、<code>Ingress Gateway</code>, <code>Egress Gateway</code> が用意されています。外部からアクセスを受け付けるために Ingress Gateway が必要ですが ASM をインストールしただけでは作成されないので、手動で作成します。</p>
+<pre><code language="language-shell" class="language-shell">kubectl create namespace ingress-gateway
+kubectl label namespace ingress-gateway istio.io/rev=asm-managed --overwrite
+kubectl apply -n ingress-gateway -f asm_output/samples/gateways/istio-ingressgateway
+</code></pre>
+<h2 is-upgraded>5.4 自動サイドカープロキシ挿入の有効化</h2>
+<p>今の段階では ASM はインストールされていますが、前節でデプロイしたアプリケーションにはサイドカープロキシが動いておらず、サービスメッシュの機能を利用することができません。まず、アプリケーションが動いているネームスペースそれぞれで、自動サイドカープロキシ挿入を有効化します。</p>
+<pre><code language="language-shell" class="language-shell">for ns in ad cart checkout currency email frontend loadgenerator payment product-catalog recommendation shipping; do
+  kubectl label namespace ${ns} istio.io/rev=asm-managed --overwrite
+done
+</code></pre>
+<h2 is-upgraded>5.5 アプリケーションへのサイドカープロキシの挿入</h2>
+<p>自動サイドカープロキシ挿入を有効化しただけでは、プロキシは挿入されません。既存のアプリケーションの場合、Deployment (Pod) を再起動する必要があります。</p>
+<pre><code language="language-shell" class="language-shell">for ns in ad cart checkout currency email frontend loadgenerator payment product-catalog recommendation shipping; do
+  kubectl rollout restart deployment -n ${ns}
+done
+</code></pre>
+<h2 is-upgraded>5.6 サイドカー挿入の確認</h2>
+<p>それぞれの Pod を確認し、1 Pod あたり 2 つのコンテナが動いていること(READY 列が 2⁄2 となっていること)を確認します。</p>
+<pre><code language="language-shell" class="language-shell">kubectl get pod --all-namespaces | grep -v system | grep -v gke-connect | grep -v istio-ingressgateway
+</code></pre>
+<p>以下のような表示になっていれば成功です。</p>
+<pre>NAMESPACE         NAME                                                    READY   STATUS    RESTARTS   AGE
+ad                adservice-6f59ffb55c-f8jhl                              2/2     Running   0          3m29s
+cart              cartservice-6586dd9664-wg8hx                            2/2     Running   0          3m28s
+checkout          checkoutservice-78557559d-zzsz9                         2/2     Running   0          3m28s
+currency          currencyservice-85544d86b7-zqpwj                        2/2     Running   0          3m27s
+email             emailservice-7cdbd97bf9-trpmd                           2/2     Running   0          3m27s
+frontend          frontend-v1-88bbd8f5-nqnnl                              2/2     Running   0          3m26s
+frontend          frontend-v2-7557f9dd85-xdsdm                            2/2     Running   0          3m26s
+frontend          frontend-v3-7d4b689b76-tgrxj                            2/2     Running   0          3m26s
+loadgenerator     loadgenerator-f499656d4-mws9g                           2/2     Running   2          3m25s
+payment           paymentservice-79d579bdbf-96ffr                         2/2     Running   0          3m25s
+product-catalog   productcatalogservice-6676456f79-qszk5                  2/2     Running   0          3m25s
+recommendation    recommendationservice-577d6f45d4-lxhbz                  2/2     Running   0          3m24s
+shipping          shippingservice-749d9b68d6-274bp                        2/2     Running   0          3m23s
+</pre>
+<h2 is-upgraded>5.7 Gateway の設定</h2>
+<p>5.3 で Ingress Gateway を作成しましたが、まだそちらを通して外部からアクセスをする設定が完了していません。Gateway, VirtualService リソースを作成し、Ingress Gateway を通して frontend にアクセスをできるようにします。</p>
+<pre><code language="language-shell" class="language-shell">kubectl apply -f asm-handson-asset/manifests/networking.yaml
+</code></pre>
+<h2 is-upgraded>5.8 Ingress Gateway からのアプリケーションのアクセス確認</h2>
+<p>Ingress Gateway を通してアプリケーションが正しく動いているかを確認します。</p>
+<pre><code language="language-shell" class="language-shell">INGRESS_IP=$(kubectl get svc istio-ingressgateway -n ingress-gateway -o jsonpath=&#39;{.status.loadBalancer.ingress[0].ip}&#39;)
+echo http://${INGRESS_IP}/
+</code></pre>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="トラフィック管理 - VirtualService" duration="0">
+        <p>トラフィック管理では <a href="https://istio.io/latest/docs/concepts/traffic-management/#virtual-services" target="_blank">VirtualService</a> と <a href="https://istio.io/latest/docs/concepts/traffic-management/#destination-rules" target="_blank">DestinationRule</a> を使いこなせるようになることが重要です。</p>
+<p>VirtualService はメッシュの中で、<strong>どのようなリクエストがどこにルーティングされるか(ルーティング ルール)</strong>を設定します。また VirtualService は通常複数のルーティング ルールで構成されています。詳細については<a href="https://istio.io/latest/docs/reference/config/networking/virtual-service/" target="_blank">こちら</a>をご参照ください。</p>
+<p>VirtualService の一般的な構成をいくつか見てみましょう。</p>
+<h2 is-upgraded>6.1 デフォルト ルーティングルール</h2>
+<pre><code language="language-yaml" class="language-yaml">apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: reviews # VirtualService 名。VirtualService の振る舞いとの関連はない
+spec:
+  hosts:
+    - reviews # クライアントがリクエストを送る仮想ホスト名で IP アドレス、DNS 名、またワイルドカード &#34;*&#34; などが指定できる。実際にルーティングできるホスト名である必要はない
+  http: # ここから下がルーティング ルールの設定
+    - match:
+        - headers: # リクエストヘッダの
+            end-user: # end-user フィールドに
+              exact: jason # jason が入っている場合
+      route:
+        - destination:
+            host: reviews # reviews の
+            subset: v2 # v2 にルーティングする
+    - route: # ここまでの条件にマッチしなかったリクエストはすべて
+        - destination:
+            host: reviews # reviews の
+            subset: v3 # v3 にルーティングする
+</code></pre>
+<aside class="warning"><p> 注: ルーティング ルール内の host 設定は、実際にルーティング可能なホスト名でなければなりません。 </p>
+</aside>
+<h2 is-upgraded>6.2 複数のルーティングルール</h2>
+<pre><code language="language-yaml" class="language-yaml">apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: bookinfo
+spec:
+  hosts:
+    - bookinfo.com # メッシュ内で bookinfo.com へのリクエストに対してこの VirtualService が適用される
+  http:
+    - match:
+        - uri: # リクエスト URI の
+            prefix: &#34;/reviews&#34; # プレフィックスが /reviews だった場合
+      route:
+        - destination:
+            host: reviews # reviews にルーティングする
+    - match:
+        - uri: # リクエスト URL の
+            prefix: &#34;/ratings&#34; # プレフィックスが /ratings だった場合
+      route:
+        - destination:
+            host: ratings # ratings にルーティングする
+</code></pre>
+<aside class="warning"><p> 注: ルーティング ルールは上に書いてあるものから順番に評価されます。 </p>
+</aside>
+<h2 is-upgraded>6.3 高度な設定 (重み付けトラフィック分割)</h2>
+<pre><code language="language-yaml" class="language-yaml">apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: reviews
+spec:
+  hosts:
+    - reviews # メッシュ内で reviews へのリクエストに対してこの VirtualService が適用される
+  http:
+    - route: # 必ず以下のルーティングが行われる
+        - destination:
+            host: reviews # reviews の
+            subset: v1 # v1 に
+          weight: 75 # 75 % のリクエストをルーティングする
+        - destination:
+            host: reviews # reviews の
+            subset: v2 # v2 に
+          weight: 25 # 25 % のリクエストをルーティングする
+</code></pre>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="トラフィック管理 - DestinationRule" duration="0">
+        <p>VirtualService がどのようにトラフィックをルーティングするか、を設定するのに対し、DestinationRule は<strong>ルーティングが決定された後のトラフィックの挙動</strong>を制御することができます。そのため、DestinationRule は VirtualService が評価された後に評価されます。</p>
+<p>DestinationRule を使うと、下記のような設定ができます。</p>
+<ul>
+<li>負荷分散方式  <ul>
+<li>ランダム</li>
+<li>ラウンドロビン</li>
+<li>重み付け</li>
+<li>最小リクエスト</li>
+</ul>
+</li>
+<li>TLS セキュリティ設定</li>
+<li>サーキット ブレーカー設定</li>
+<li>Pod のラベルに応じたサブセット設定</li>
+</ul>
+<p>これ以外にも様々な設定が可能です。詳細については<a href="https://istio.io/latest/docs/reference/config/networking/destination-rule/" target="_blank">こちら</a>をご参照ください。</p>
+<p>ここでもいくつか、DestinationRule の構成例を見てみます。</p>
+<h2 is-upgraded>7.1 サブセット構成</h2>
+<pre><code language="language-yaml" class="language-yaml">apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: reviews
+spec:
+  host: reviews # reviews へのリクエスト(VirtualService 評価後)を対象にサブセットを作成する
+  subsets:
+    - name: v1
+      labels:
+        version: v1 # version: v1 というラベルが付いている Pod を v1 サブセットとする (このサブセットを VirtualService から指定できる)
+    - name: v2
+      labels:
+        version: v2 # version: v2 というラベルが付いている Pod を v2 サブセットとする
+    - name: v3
+      labels:
+        version: v3 # version: v3 というラベルが付いている Pod を v3 サブセットとする
+</code></pre>
+<h2 is-upgraded>7.2 負荷分散方式の設定</h2>
+<pre><code language="language-yaml" class="language-yaml">apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: my-destination-rule
+spec:
+  host: my-svc # my-svc へのリクエスト(VirtualService 評価後)を対象に設定する
+  trafficPolicy:
+    loadBalancer:
+      simple: RANDOM # デフォルトの負荷分散方式はランダムとする
+  subsets:
+    - name: v1
+      labels:
+        version: v1 # version: v1 というラベルが付いている Pod を v1 サブセットとする
+    - name: v2
+      labels:
+        version: v2 # version: v2 というラベルが付いている Pod を v2 サブセットとする
+      trafficPolicy:
+        loadBalancer:
+          simple: ROUND_ROBIN # v2 サブセットの負荷分散方式はラウンドロビンとする
+    - name: v3
+      labels:
+        version: v3 # version: v3 というラベルが付いている Pod を v3 サブセットとする
+</code></pre>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="トラフィック管理 - リクエスト ルーティング" duration="0">
+        <p>初期状態では Pod のラベルが異なる frontend-v1, frontend-v2, frontend-v3 の 3 つの Deployment が作られています。それぞれ環境名が異なっており順番に Google Cloud, AWS, Azure となっています。</p>
+<p>まだメッシュ外からのアクセスを受け付ける設定以外、VirtualService, DestinationRule とも設定されていません。それらを作成し、各バージョンへのアクセスを制御してみましょう。</p>
+<h2 is-upgraded>8.1 DestinationRule の作成</h2>
+<p>バージョンが Pod のラベルで分かれており、それをベースにルーティングを制御するには、サブセットを作成する必要があります。</p>
+<pre><code language="language-shell" class="language-shell">cat &lt;&lt; EOF &gt; frontend-dr.yaml
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: frontend-dr
+  namespace: frontend
+spec:
+  host: frontend
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+    - name: v2
+      labels:
+        version: v2
+    - name: v3
+      labels:
+        version: v3
+EOF
+kubectl apply -f frontend-dr.yaml
+</code></pre>
+<h2 is-upgraded>8.2 割合ベースのトラフィック分割 (v1: 50%, v2: 25%, v3: 25%)</h2>
+<pre><code language="language-shell" class="language-shell">cat &lt;&lt; EOF &gt; frontend-vs.yaml
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata: # kpt-merge: frontend/frontend-ingress
+  name: frontend-ingress
+  namespace: frontend
+spec:
+  hosts:
+    - &#34;*&#34;
+  gateways:
+    - frontend-gateway
+  http:
+    - route:
+        - destination:
+            host: frontend
+            subset: v1
+            port:
+              number: 80
+          weight: 50
+        - destination:
+            host: frontend
+            subset: v2
+            port:
+              number: 80
+          weight: 25
+        - destination:
+            host: frontend
+            subset: v3
+            port:
+              number: 80
+          weight: 25
+EOF
+kubectl apply -f frontend-vs.yaml
+</code></pre>
+<h2 is-upgraded>8.3 アクセス確認</h2>
+<p>期待通りに動いているか下記のコマンドで確認します。</p>
+<pre><code language="language-shell" class="language-shell">INGRESS_IP=$(kubectl get svc istio-ingressgateway -n ingress-gateway -o jsonpath=&#39;{.status.loadBalancer.ingress[0].ip}&#39;)
+for i in $(seq 30); do curl -s http://${INGRESS_IP}/ | grep -e &#39;Google Cloud&#39; -e &#39;AWS&#39; -e &#39;Azure&#39;; done | sort | uniq -c
+</code></pre>
+<p>Google Cloud が 50 %, AWS, Azure が 25 % くらいの割合に変わっていれば成功です。</p>
+<h2 is-upgraded>8.4 チャレンジ問題 - リクエスト ルーティング</h2>
+<p>frontend のすべてのアクセスを v1 (Google Cloud) にルーティングするように設定をしてみましょう。前の手順で作成した VirtualService を更新することで実現できます。</p>
+<h2 is-upgraded>8.5 アクセス確認</h2>
+<p>再度動作を確認します。</p>
+<pre><code language="language-shell" class="language-shell">INGRESS_IP=$(kubectl get svc istio-ingressgateway -n ingress-gateway -o jsonpath=&#39;{.status.loadBalancer.ingress[0].ip}&#39;)
+for i in $(seq 30); do curl -s http://${INGRESS_IP}/ | grep -e &#39;Google Cloud&#39; -e &#39;AWS&#39; -e &#39;Azure&#39;; done | sort | uniq -c
+</code></pre>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="トラフィック管理 - フォールト インジェクション" duration="0">
+        <p>サービスメッシュではアプリケーションに変更を加えること無く、以下のような設定(フォールト)を挿入することができます。</p>
+<ul>
+<li>特定の HTTP レスポンス  <ul>
+<li>4xx, 5xx, 3xx</li>
+</ul>
+</li>
+<li>特定秒数の遅延</li>
+</ul>
+<p>この機能を利用することで、以下のような実現に手間がかかるテストシナリオを簡単にテストできます。</p>
+<ul>
+<li>currencyservice は 100 % の割合で、レスポンスが 1 秒遅延する</li>
+<li>productcatalogservice は 20 % の割合で、503 を返す</li>
+</ul>
+<p>実際に 2 つのシナリオを試してみましょう。</p>
+<h2 is-upgraded>9.1 currencyservice - レスポンス遅延: 1 秒, 割合: 100%</h2>
+<pre><code language="language-shell" class="language-shell">cat &lt;&lt; EOF &gt; currency-vs.yaml
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: currency-vs
+  namespace: currency
+spec:
+  hosts:
+    - currencyservice
+  http:
+    - fault:
+        delay:
+          fixedDelay: 1s
+          percentage:
+            value: 100
+      route:
+        - destination:
+            host: currencyservice
+EOF
+kubectl apply -f currency-vs.yaml
+</code></pre>
+<h2 is-upgraded>9.2 アクセス確認</h2>
+<p>今回はブラウザからアクセスをし、動作を確認します。</p>
+<pre><code language="language-shell" class="language-shell">INGRESS_IP=$(kubectl get svc istio-ingressgateway -n ingress-gateway -o jsonpath=&#39;{.status.loadBalancer.ingress[0].ip}&#39;)
+echo http://${INGRESS_IP}/
+</code></pre>
+<p>トップページへのアクセスが明らかに遅いことが確認できます。1 秒の遅延しか入れていないのに、なぜここまで遅くなるかを考えてみましょう。</p>
+<h2 is-upgraded>9.3 遅延設定の解除</h2>
+<p>currencyservice に設定していた遅延を削除します。</p>
+<pre><code language="language-shell" class="language-shell">kubectl delete -f currency-vs.yaml
+</code></pre>
+<h2 is-upgraded>9.4 productcatalogservice - エラーレスポンス: 503, 割合: 20 %</h2>
+<pre><code language="language-shell" class="language-shell">cat &lt;&lt; EOF &gt; productcatalog-vs.yaml
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: productcatalog-vs
+  namespace: product-catalog
+spec:
+  hosts:
+    - productcatalogservice
+  http:
+    - fault:
+        abort:
+          httpStatus: 503
+          percentage:
+            value: 20
+      route:
+        - destination:
+            host: productcatalogservice
+EOF
+kubectl apply -f productcatalog-vs.yaml
+</code></pre>
+<h2 is-upgraded>9.5 アクセス確認</h2>
+<p>ここでもブラウザからアクセスをし、動作を確認します。</p>
+<pre><code language="language-shell" class="language-shell">INGRESS_IP=$(kubectl get svc istio-ingressgateway -n ingress-gateway -o jsonpath=&#39;{.status.loadBalancer.ingress[0].ip}&#39;)
+echo http://${INGRESS_IP}/
+</code></pre>
+<p>様々なページを開いてみるとかなりの割合で 500 エラーがでることがわかります。20 % のエラー発生率であっても、様々なサービスから呼ばれているため影響が大きくなってしまうことがわかります。</p>
+<h2 is-upgraded>9.6 エラー設定の解除</h2>
+<p>currencyservice に設定していた遅延を削除します。</p>
+<pre><code language="language-shell" class="language-shell">kubectl delete -f productcatalog-vs.yaml
+</code></pre>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="可観測性 - ASM UI" duration="0">
+        <p>サービスメッシュの大きな機能の一つに可観測性の向上があります。サイドカー プロキシがサービス間の連携を管理しているため、そのプロキシからログ情報、メトリクスを出力することで、メッシュ内の状況をアプリケーションに変更を加えること無く、可視化することが可能です。</p>
+<p>ASM ではインストールをするだけで、様々な情報が UI から見えるようになります。ここでは実際に UI を操作し、デプロイしているアプリケーションの現在の状況を見てみます。</p>
+<h2 is-upgraded>10.1 4 つのゴールデン シグナル</h2>
+<p>Google ではカスタマー フェイシングなサービスを監視する場合、下記に示す 4 つのメトリクスが最重要なものと位置づけています。SRE 本の該当記述箇所は<a href="https://sre.google/sre-book/monitoring-distributed-systems/" target="_blank">こちら</a>をご参照ください。</p>
+<ul>
+<li>レイテンシー  <ul>
+<li>正常なリクエストと、エラーリクエストは分けてレイテンシーを測ること</li>
+</ul>
+</li>
+<li>トラフィック  <ul>
+<li>どれだけアクセスが来ているか、通常<strong>リクエスト / 秒</strong>が使われる</li>
+</ul>
+</li>
+<li>エラー  <ul>
+<li>どれだけの割合でエラーが発生しているか</li>
+</ul>
+</li>
+<li>サチュレーション(飽和度)  <ul>
+<li>どれだけサービスに負荷が来ているか。サービスのボトルネックを中心に測定する(例えばメモリがボトルネックになる場合、使用メモリ割合、I/O にボトルネックがある場合、I/O 負荷状況をみる)</li>
+</ul>
+</li>
+</ul>
+<p>ASM ではこれらのシグナルをデフォルトで可視化しています。<a href="https://console.cloud.google.com/anthos/services" target="_blank">こちら</a>からブラウザでアクセスしてみます。</p>
+<p class="image-container"><img alt="Golden Signals" src="img/97562b8a38d9b95c.png"></p>
+<h2 is-upgraded>10.2 トポロジービュー</h2>
+<p>メッシュ内の各サービスがどのように連携しているかを、実際の連携状況を元に可視化することができます。xxx からアクセスして確認します。</p>
+<p class="image-container"><img alt="Topology View" src="img/6696ee5fa58ca89a.png"></p>
+<h2 is-upgraded>10.3 各サービスごとの詳細情報</h2>
+<p>上記で紹介した情報以外にもサービスごとに以下の情報を UI から確認できます。実際にアクセスをして見てみましょう。</p>
+<ul>
+<li>概要  <ul>
+<li>ひと目で各種重要情報を確認</li>
+</ul>
+</li>
+<li>健全性  <ul>
+<li>SLO の状況</li>
+</ul>
+</li>
+<li>指標  <ul>
+<li>メトリクスのグラフ、アラート、ログ、トレース</li>
+</ul>
+</li>
+<li>連携サービス  <ul>
+<li>他サービスとの連携状況</li>
+</ul>
+</li>
+<li>診断  <ul>
+<li>エラーログ、アラート</li>
+</ul>
+</li>
+<li>インフラストラクチャ  <ul>
+<li>メトリクスのグラフ、Pod の状況</li>
+</ul>
+</li>
+<li>Traffic  <ul>
+<li>トラフィックのメトリクス、ルーティング状況</li>
+</ul>
+</li>
+<li>セキュリティ  <ul>
+<li>セキュリティ設定の状況</li>
+</ul>
+</li>
+<li>リソース  <ul>
+<li>サービス関連リソース (ASM リソースも含む)</li>
+</ul>
+</li>
+</ul>
+<p class="image-container"><img alt="Services Observability" src="img/b693068c4876631e.png"></p>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="可観測性 - SLO モニタリング" duration="0">
+        <p>ASM で出力したメトリクスを利用して、簡単に SLO のモニタリングを行うことができます。実際に SLO を設定してみます。</p>
+<p>ここではアプリケーションの入り口である frontend サービスを対象に、エラーレートを使い SLO を設定しましょう。</p>
+<h2 is-upgraded>11.1 SLO の作成</h2>
+<ol type="1">
+<li><a href="https://console.cloud.google.com/anthos/services/service/frontend/frontend/health" target="_blank">こちら</a> から frontend サービスの健全性画面に遷移します。</li>
+<li><strong>SLO を作成</strong> ボタンをクリック</li>
+<li>サービスレベル指標 (SLI) の設定  <ol type="1">
+<li>指標の選択は <strong>可用性</strong> が選択されていることを確認</li>
+<li>リクエスト ベースまたは Windows ベースの選択は <strong>リクエスト ベース</strong> が選択されていることを確認</li>
+<li><strong>続行</strong> ボタンをクリック</li>
+</ol>
+</li>
+<li>SLI の詳細を定義する  <ol type="1">
+<li><strong>続行</strong> ボタンをクリック</li>
+</ol>
+</li>
+<li>SLO の設定  <ol type="1">
+<li>コンプライアンス期間 - 期間の種類: <strong>連続</strong> を選択</li>
+<li>コンプライアンス期間 - 期間の長さ: <strong>1 日</strong> に設定</li>
+<li>パフォーマンス目標: <strong>95 %</strong> に設定</li>
+<li><strong>続行</strong> ボタンをクリック</li>
+</ol>
+</li>
+<li>確認と保存  <ol type="1">
+<li><strong>SLO を作成</strong> ボタンをクリック</li>
+</ol>
+</li>
+</ol>
+<p>今の段階では下図のように、エラーバジェット内であることを確認します。</p>
+<p class="image-container"><img alt="In Error Budget" src="img/9193eb2ad7e4161b.png"></p>
+<h2 is-upgraded>11.2 SLO アラートの作成</h2>
+<ol type="1">
+<li>先程作成した SLO から <strong>SLO アラートの作成</strong> ボタンをクリック</li>
+<li>SLO のアラート条件の設定  <ol type="1">
+<li>ルックバック期間: <strong>5 minutes</strong> に設定</li>
+<li>バーンレートのしきい値: <strong>10</strong> に設定</li>
+<li><strong>次へ</strong> ボタンをクリック</li>
+</ol>
+</li>
+<li>Who should be notified? (通知を受け取るメンバーの設定)  <ol type="1">
+<li><strong>次へ</strong> ボタンをクリック</li>
+</ol>
+</li>
+<li>What are the steps to fix the issue? (問題を解決する手順)  <ol type="1">
+<li><strong>SAVE</strong> ボタンをクリック</li>
+</ol>
+</li>
+</ol>
+<p>アラートが設定され、発報されていないことを確認します。</p>
+<p class="image-container"><img alt="No alert" src="img/19fc37356209b522.png"></p>
+<h2 is-upgraded>11.3 currencyservice にエラーを挿入</h2>
+<p>トラフィック管理のフォールト インジェクションで学んだ方法を使い、意図的に currencyservice にエラーを挿入します。そうすることで、frontend が影響を受け、エラーが増え結果的にアラートが発報することを確認します。</p>
+<pre><code language="language-shell" class="language-shell">cat &lt;&lt; EOF &gt; currency-vs.yaml
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: currency-vs
+  namespace: currency
+spec:
+  hosts:
+    - currencyservice
+  http:
+    - fault:
+        abort:
+          httpStatus: 503
+          percentage:
+            value: 100
+      route:
+        - destination:
+            host: currencyservice
+EOF
+kubectl apply -f currency-vs.yaml
+</code></pre>
+<p>設定後少し待ち、frontend サービスの健全性の画面が下記のように変わることを確認します。</p>
+<p class="image-container"><img alt="Alert" src="img/c47637cf6c88be15.png"></p>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="クリーンアップ" duration="0">
+        <p>環境のクリーンアップを行います。</p>
+<h2 is-upgraded>プロジェクトの削除</h2>
+<p>最も簡単な方法は Google Cloud プロジェクトごと削除する方法です。</p>
+<pre><code language="language-shell" class="language-shell">gcloud projects delete ${PROJECT_ID} --quiet
+</code></pre>
+
+
+      </google-codelab-step>
+    
+  </google-codelab>
+
+  <script src="https://storage.googleapis.com/codelab-elements/native-shim.js"></script>
+  <script src="https://storage.googleapis.com/codelab-elements/custom-elements.min.js"></script>
+  <script src="https://storage.googleapis.com/codelab-elements/prettify.js"></script>
+  <script src="https://storage.googleapis.com/codelab-elements/codelab-elements.js"></script>
+  <script src="//support.google.com/inapp/api.js"></script>
+
+</body>
+</html>
