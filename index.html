@@ -591,6 +591,8 @@ echo http://${INGRESS_IP}/
 </li>
 </ol>
 <p>今の段階では下図のように、エラーバジェット内であることを確認します。</p>
+<aside class="warning"><p> 注: 場合によってはエラーバジェットがマイナスになっている場合もあります。その場合でも次に進んでください。 </p>
+</aside>
 <p class="image-container"><img alt="In Error Budget" src="img/9193eb2ad7e4161b.png"></p>
 <h2 is-upgraded>11.2 SLO アラートの作成</h2>
 <ol type="1">
@@ -635,7 +637,7 @@ spec:
 EOF
 kubectl apply -f currency-vs.yaml
 </code></pre>
-<p>設定後少し待ち、frontend サービスの健全性の画面が下記のように変わることを確認します。</p>
+<p>設定後少し待ち、frontend サービスの健全性の画面が下記のように変わることを確認します。健全性の表示画面上でブラウザをリロードし確認してください。</p>
 <p class="image-container"><img alt="Alert" src="img/c47637cf6c88be15.png"></p>
 
 
