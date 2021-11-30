@@ -481,7 +481,7 @@ echo http://${INGRESS_IP}/
 </code></pre>
 <p>様々なページを開いてみるとかなりの割合で 500 エラーがでることがわかります。20 % のエラー発生率であっても、様々なサービスから呼ばれているため影響が大きくなってしまうことがわかります。</p>
 <h2 is-upgraded>9.6 エラー設定の解除</h2>
-<p>currencyservice に設定していた遅延を削除します。</p>
+<p>productcatalogservice に設定していた遅延を削除します。</p>
 <pre><code language="language-shell" class="language-shell">kubectl delete -f productcatalog-vs.yaml
 </code></pre>
 
